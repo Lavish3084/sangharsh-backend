@@ -1753,6 +1753,25 @@ app.post('/api/labors/auth/register', async (req, res) => {
         res.status(500).json({ error: 'Server error', details: error.message });
     }
 });
+app.get('/api/labors/auth/check-phone/:phoneNumber', async (req, res) => {
+    try {
+        const { phoneNumber } = req.params;
+
+        // Check if the phone number exists in the Labor collection
+        const labor = await Labor.findOne({ mobile_number: phoneNumber });
+
+        if (labor) {
+            // Phone number exists
+            return res.status(200).json({ exists: true });
+        } else {
+            // Phone number does not exist
+            return res.status(404).json({ exists: false });
+        }
+    } catch (error) {
+        console.error('Error checking phone number:', error);
+        res.status(500).json({ error: 'Server error', details: error.message });
+    }
+});
 
 // Start the server
 server.listen(PORT, () => {
