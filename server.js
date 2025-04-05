@@ -20,13 +20,13 @@ const io = socketIo(server, {
     }
 });
 
-const PORT = process.env.PORT || 5001;
+const PORT = 5001; // Hardcoded port
 
 // Twilio Configuration
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_VERIFY_SERVICE_SID = process.env.TWILIO_VERIFY_SERVICE_SID;
-const JWT_SECRET = process.env.JWT_SECRET;
+const TWILIO_ACCOUNT_SID = 'REMOVED_SECRET'; // Hardcoded Twilio Account SID
+const TWILIO_AUTH_TOKEN = '252af36cbb2f5c35a99dfdd7fe67e746'; // Hardcoded Twilio Auth Token
+const TWILIO_VERIFY_SERVICE_SID = 'VA8f9e65d77c84b619e0ac8f0ee4f3cba2'; // Hardcoded Twilio Verify Service SID
+const JWT_SECRET = 'your-secret-key'; // Hardcoded JWT Secret
 
 // Create Twilio client with error handling
 const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
@@ -65,7 +65,7 @@ app.use(bodyParser.json());
 app.use(cors());
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect('mongodb+srv://vmro45:Vmro45%407856@coddunity.kyll8.mongodb.net/sangharsh')
     .then(() => console.log('Connected to MongoDB'))
     .catch(err => console.error('MongoDB connection error:', err));
 
@@ -1700,9 +1700,9 @@ app.get('/api/history', async (req, res) => {
 // Temporary route to check environment variables
 app.get('/check-env', (req, res) => {
     res.json({
-        TWILIO_ACCOUNT_SID: !!process.env.TWILIO_ACCOUNT_SID,
-        TWILIO_AUTH_TOKEN: !!process.env.TWILIO_AUTH_TOKEN,
-        TWILIO_VERIFY_SERVICE_SID: !!process.env.TWILIO_VERIFY_SERVICE_SID
+        TWILIO_ACCOUNT_SID: !!TWILIO_ACCOUNT_SID,
+        TWILIO_AUTH_TOKEN: !!TWILIO_AUTH_TOKEN,
+        TWILIO_VERIFY_SERVICE_SID: !!TWILIO_VERIFY_SERVICE_SID
     });
 });
 
