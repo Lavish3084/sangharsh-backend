@@ -82,7 +82,8 @@ const laborSchema = new mongoose.Schema({
     specialization: { type: String },
     experience: { type: Number },
     isBookmarked: { type: Boolean, default: false },
-    registeredAt: { type: Date, default: Date.now }
+    registeredAt: { type: Date, default: Date.now },
+    mobile_number: { type: String }
 });
 
 const Labor = mongoose.model('Labor', laborSchema);
