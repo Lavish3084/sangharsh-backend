@@ -1772,6 +1772,37 @@ app.get('/api/labors/auth/check-phone/:phoneNumber', async (req, res) => {
         res.status(500).json({ error: 'Server error', details: error.message });
     }
 });
+app.get('/api/labors/profile/:phoneNumber', authenticateToken, async (req, res) => {
+    try {
+        const { phoneNumber } = req.params;
+
+        // Find the laborer by mobile_number
+        const laborer = await Labor.findOne({ mobile_number: phoneNumber });
+
+        if (!laborer) {
+            return res.status(404).json({ error: 'Laborer not found' });
+        }
+
+        // Return the laborer's profile
+        res.status(200).json({
+            id: laborer._id,
+            name: laborer.name,
+            skill: laborer.skill,
+            location: laborer.location,
+            pricePerDay: laborer.pricePerDay,
+            imageUrl: laborer.imageUrl,
+            category: laborer.category,
+            specialization: laborer.specialization,
+            experience: laborer.experience,
+            availability_status: laborer.availability_status,
+            registeredAt: laborer.registeredAt,
+            isBookmarked: laborer.isBookmarked
+        });
+    } catch (error) {
+        console.error('Error fetching laborer profile:', error);
+        res.status(500).json({ error: 'Server error', details: error.message });
+    }
+});
 
 // Start the server
 server.listen(PORT, () => {
