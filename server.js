@@ -366,25 +366,21 @@ app.post('/api/labors/auth/verify-otp', async (req, res) => {
         }
         
         // Find or create user
-        let user = await User.findOne({ phoneNumber });
+        let labor = await Labor.findOne({ mobile_number: phoneNumber });
         
-        if (!user) {
-            // Create a new unverified user if not exists
-            user = new User({
-                fullName: `User-${phoneNumber.slice(-4)}`,
-                phoneNumber,
-                isVerified: false
+        if (!labor) {
+            // Create a new labor if not exists
+            labor = new Labor({
+                name: `User-${phoneNumber.slice(-4)}`, // Default name
+                mobile_number,
+                isBookmarked: false // Default value
             });
-            await user.save();
+            await labor.save();
         }
-        
-        // Mark user as verified
-        user.isVerified = true;
-        await user.save();
         
         // Generate JWT token
         const token = jwt.sign(
-            { id: user._id, phoneNumber: user.phoneNumber },
+            { id: labor._id, mobile_number: labor.mobile_number },
             JWT_SECRET,
             { expiresIn: '7d' }
         );
@@ -392,12 +388,19 @@ app.post('/api/labors/auth/verify-otp', async (req, res) => {
         res.status(200).json({
             message: 'Phone number verified successfully',
             token,
-            user: {
-                id: user._id,
-                fullName: user.fullName,
-                phoneNumber: user.phoneNumber,
-                isVerified: user.isVerified,
-                profilePicture: user.profilePicture
+            labor: {
+                id: labor._id,
+                name: labor.name,
+                skill: labor.skill,
+                location: labor.location,
+                pricePerDay: labor.pricePerDay,
+                imageUrl: labor.imageUrl,
+                category: labor.category,
+                specialization: labor.specialization,
+                experience: labor.experience,
+                availability_status: labor.availability_status,
+                registeredAt: labor.registeredAt,
+                isBookmarked: labor.isBookmarked
             }
         });
     } catch (error) {
@@ -1738,21 +1741,40 @@ app.post('/api/labors/auth/register', async (req, res) => {
             isBookmarked: false // Default value
         });
 
-        // Log the new labor object before saving
-        console.log('New labor object:', newLabor);
-
         // Save to MongoDB
         await newLabor.save();
 
+        // Generate JWT token
+        const token = jwt.sign(
+            { id: newLabor._id, mobile_number: newLabor.mobile_number },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
         res.status(201).json({
             message: 'Worker registered successfully',
-            labor: newLabor
+            token,
+            labor: {
+                id: newLabor._id,
+                name: newLabor.name,
+                skill: newLabor.skill,
+                location: newLabor.location,
+                pricePerDay: newLabor.pricePerDay,
+                imageUrl: newLabor.imageUrl,
+                category: newLabor.category,
+                specialization: newLabor.specialization,
+                experience: newLabor.experience,
+                availability_status: newLabor.availability_status,
+                registeredAt: newLabor.registeredAt,
+                isBookmarked: newLabor.isBookmarked
+            }
         });
     } catch (error) {
         console.error('Error registering worker:', error);
         res.status(500).json({ error: 'Server error', details: error.message });
     }
 });
+
 app.get('/api/labors/auth/check-phone/:phoneNumber', async (req, res) => {
     try {
         const { phoneNumber } = req.params;
@@ -1772,6 +1794,7 @@ app.get('/api/labors/auth/check-phone/:phoneNumber', async (req, res) => {
         res.status(500).json({ error: 'Server error', details: error.message });
     }
 });
+
 app.get('/api/labors/profile/:phoneNumber', authenticateToken, async (req, res) => {
     try {
         const { phoneNumber } = req.params;
