@@ -24,7 +24,7 @@ const PORT = 5001; // Hardcoded port
 
 // Twilio Configuration
 const TWILIO_ACCOUNT_SID = 'AC5bd01490c89f591310cf211e1f8332bb'; // Hardcoded Twilio Account SID
-const TWILIO_AUTH_TOKEN = '252af36cbb2f5c35a99dfdd7fe67e746'; // Hardcoded Twilio Auth Token
+const TWILIO_AUTH_TOKEN = '72c2d5285cf9e35385428f447c85b694'; // Hardcoded Twilio Auth Token
 const TWILIO_VERIFY_SERVICE_SID = 'VA8f9e65d77c84b619e0ac8f0ee4f3cba2'; // Hardcoded Twilio Verify Service SID
 const JWT_SECRET = 'your-secret-key'; // Hardcoded JWT Secret
 
