@@ -23,7 +23,7 @@ const io = socketIo(server, {
 const PORT = 5001; // Hardcoded port
 
 // Twilio Configuration
-const TWILIO_ACCOUNT_SID = 'REMOVED_SECRET'; // Hardcoded Twilio Account SID
+const TWILIO_ACCOUNT_SID = 'AC5bd01490c89f591310cf211e1f8332bb'; // Hardcoded Twilio Account SID
 const TWILIO_AUTH_TOKEN = '252af36cbb2f5c35a99dfdd7fe67e746'; // Hardcoded Twilio Auth Token
 const TWILIO_VERIFY_SERVICE_SID = 'VA8f9e65d77c84b619e0ac8f0ee4f3cba2'; // Hardcoded Twilio Verify Service SID
 const JWT_SECRET = 'your-secret-key'; // Hardcoded JWT Secret
@@ -1798,9 +1798,11 @@ app.get('/api/labors/auth/check-phone/:phoneNumber', async (req, res) => {
 app.get('/api/labors/profile/:phoneNumber', authenticateToken, async (req, res) => {
     try {
         const { phoneNumber } = req.params;
+        console.log(`Fetching profile for phone number: ${phoneNumber}`); // Debug log
 
         // Find the laborer by mobile_number
         const laborer = await Labor.findOne({ mobile_number: phoneNumber });
+        console.log('Laborer found:', laborer); // Debug log
 
         if (!laborer) {
             return res.status(404).json({ error: 'Laborer not found' });
@@ -1824,6 +1826,122 @@ app.get('/api/labors/profile/:phoneNumber', authenticateToken, async (req, res) 
     } catch (error) {
         console.error('Error fetching laborer profile:', error);
         res.status(500).json({ error: 'Server error', details: error.message });
+    }
+});
+
+// SavedLocation Schema and Model
+const savedLocationSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    name: { type: String, required: true },
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+    address: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const SavedLocation = mongoose.model('SavedLocation', savedLocationSchema);
+
+// POST API - Save a new location
+app.post('/api/locations/save', authenticateToken, async (req, res) => {
+    try {
+        const { name, latitude, longitude, address } = req.body;
+
+        // Validate required fields
+        if (!name || !latitude || !longitude || !address) {
+            return res.status(400).json({
+                success: false,
+                error: 'Name, latitude, longitude, and address are required'
+            });
+        }
+
+        // Create new saved location
+        const savedLocation = new SavedLocation({
+            userId: req.user.id,
+            name,
+            latitude,
+            longitude,
+            address
+        });
+
+        await savedLocation.save();
+
+        res.status(201).json({
+            success: true,
+            message: 'Location saved successfully',
+            location: {
+                id: savedLocation._id,
+                name: savedLocation.name,
+                latitude: savedLocation.latitude,
+                longitude: savedLocation.longitude,
+                address: savedLocation.address,
+                createdAt: savedLocation.createdAt
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error saving location:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to save location',
+            details: error.message
+        });
+    }
+});
+
+// GET API - Get all saved locations for a user
+app.get('/api/locations', authenticateToken, async (req, res) => {
+    try {
+        const savedLocations = await SavedLocation.find({ userId: req.user.id })
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({
+            success: true,
+            locations: savedLocations.map(location => ({
+                id: location._id,
+                name: location.name,
+                latitude: location.latitude,
+                longitude: location.longitude,
+                address: location.address,
+                createdAt: location.createdAt
+            }))
+        });
+    } catch (error) {
+        console.error('❌ Error fetching saved locations:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch saved locations',
+            details: error.message
+        });
+    }
+});
+
+// DELETE API - Delete a saved location
+app.delete('/api/locations/:id', authenticateToken, async (req, res) => {
+    try {
+        const location = await SavedLocation.findOne({
+            _id: req.params.id,
+            userId: req.user.id
+        });
+
+        if (!location) {
+            return res.status(404).json({
+                success: false,
+                error: 'Location not found or unauthorized'
+            });
+        }
+
+        await location.deleteOne();
+
+        res.status(200).json({
+            success: true,
+            message: 'Location deleted successfully'
+        });
+    } catch (error) {
+        console.error('❌ Error deleting location:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to delete location',
+            details: error.message
+        });
     }
 });
 
