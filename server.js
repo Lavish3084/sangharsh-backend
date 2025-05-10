@@ -29,7 +29,14 @@ const TWILIO_VERIFY_SERVICE_SID = 'VA8f9e65d77c84b619e0ac8f0ee4f3cba2'; // Hardc
 const JWT_SECRET = 'your-secret-key'; // Hardcoded JWT Secret
 
 // Create Twilio client with error handling
-const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+let twilioClient;
+try {
+    twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    console.log('✅ Twilio client initialized successfully');
+} catch (error) {
+    console.error('❌ Failed to initialize Twilio client:', error);
+    process.exit(1);
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -146,24 +153,41 @@ function generateOTP() {
     return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
-// Update the sendOTP function
+// Update the sendOTP function with better error handling
 async function sendOTP(phoneNumber) {
     try {
         console.log(`📱 Requesting verification for ${phoneNumber}`);
+        
+        if (!phoneNumber) {
+            throw new Error('Phone number is required');
+        }
+
+        // Format phone number to E.164 format if not already
+        const formattedPhoneNumber = phoneNumber.startsWith('+') ? phoneNumber : `+${phoneNumber}`;
         
         // Use Twilio Verify to send the verification code
         const verification = await twilioClient.verify.v2
             .services(TWILIO_VERIFY_SERVICE_SID)
             .verifications.create({
-                to: phoneNumber,
+                to: formattedPhoneNumber,
                 channel: 'sms'
             });
         
-        console.log(`Verification status: ${verification.status}`);
+        console.log(`✅ Verification status: ${verification.status}`);
         return verification.status === 'pending';
     } catch (error) {
-        console.error('Error sending verification via Twilio:', error);
-        return false;
+        console.error('❌ Error sending verification via Twilio:', error);
+        
+        // Handle specific Twilio error codes
+        if (error.code === 20003) {
+            console.error('Authentication failed. Please check your Twilio credentials.');
+        } else if (error.code === 21211) {
+            console.error('Invalid phone number format.');
+        } else if (error.code === 21214) {
+            console.error('Phone number is not mobile.');
+        }
+        
+        throw error;
     }
 }
 
