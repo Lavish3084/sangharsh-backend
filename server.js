@@ -1969,6 +1969,50 @@ app.delete('/api/locations/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// GET API - Check if user exists with Google ID
+app.get('/api/labors/auth/check-google/:googleId', async (req, res) => {
+    try {
+        const { googleId } = req.params;
+
+        if (!googleId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Google ID is required'
+            });
+        }
+
+        // Check if the Google ID exists in the User collection
+        const user = await User.findOne({ googleId });
+
+        if (user) {
+            // User exists
+            return res.status(200).json({ 
+                exists: true,
+                user: {
+                    id: user._id,
+                    fullName: user.fullName,
+                    email: user.email,
+                    profilePicture: user.profilePicture,
+                    isVerified: user.isVerified
+                }
+            });
+        } else {
+            // User does not exist
+            return res.status(404).json({ 
+                exists: false,
+                message: 'User not found with this Google ID'
+            });
+        }
+    } catch (error) {
+        console.error('❌ Error checking Google ID:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Server error',
+            details: error.message 
+        });
+    }
+});
+
 // Start the server
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
