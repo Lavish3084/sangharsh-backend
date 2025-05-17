@@ -775,18 +775,165 @@ app.patch('/api/labors/:id/availability', async (req, res) => {
     }
 });
 
-// Get Booking Requests for a Labor
+// Get Booking Requests for a Labor (Pending only)
 app.get('/api/bookings/labor/:laborId', async (req, res) => {
     try {
         const bookings = await Booking.find({ 
             labor_id: req.params.laborId, 
             status: "Pending" 
-        }).populate('user_id', 'fullName phoneNumber');
+        })
+        .populate('user_id', 'fullName phoneNumber')
+        .sort({ createdAt: -1 }); // Sort by newest first
 
-        res.json(bookings);
+        res.json({
+            success: true,
+            bookings
+        });
     } catch (error) {
         console.error('❌ Error fetching bookings:', error);
-        res.status(500).json({ error: "Failed to fetch bookings" });
+        res.status(500).json({ 
+            success: false,
+            error: "Failed to fetch bookings" 
+        });
+    }
+});
+
+// Get All Bookings for a Labor (All statuses)
+app.get('/api/bookings/labor/:laborId/all', async (req, res) => {
+    try {
+        const { status, startDate, endDate } = req.query;
+        
+        // Build query
+        const query = { labor_id: req.params.laborId };
+        
+        // Add status filter if provided
+        if (status) {
+            if (Array.isArray(status)) {
+                query.status = { $in: status };
+            } else {
+                query.status = status;
+            }
+        }
+
+        // Add date range filter if provided
+        if (startDate || endDate) {
+            query.createdAt = {};
+            if (startDate) {
+                query.createdAt.$gte = new Date(startDate);
+            }
+            if (endDate) {
+                query.createdAt.$lte = new Date(endDate);
+            }
+        }
+
+        // Get bookings with pagination
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const [bookings, totalCount] = await Promise.all([
+            Booking.find(query)
+                .populate('user_id', 'fullName phoneNumber email')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Booking.countDocuments(query)
+        ]);
+
+        // Get booking statistics
+        const stats = await Booking.aggregate([
+            { $match: { labor_id: req.params.laborId } },
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 },
+                    totalAmount: { $sum: '$amount' }
+                }
+            }
+        ]);
+
+        // Format statistics
+        const bookingStats = {
+            total: totalCount,
+            pending: 0,
+            confirmed: 0,
+            completed: 0,
+            rejected: 0,
+            totalAmount: 0
+        };
+
+        stats.forEach(stat => {
+            bookingStats[stat._id.toLowerCase()] = stat.count;
+            bookingStats.totalAmount += stat.totalAmount;
+        });
+
+        res.json({
+            success: true,
+            currentPage: page,
+            totalPages: Math.ceil(totalCount / limit),
+            totalBookings: totalCount,
+            stats: bookingStats,
+            bookings: bookings.map(booking => ({
+                id: booking._id,
+                user: booking.user_id,
+                amount: booking.amount,
+                start_time: booking.start_time,
+                end_time: booking.end_time,
+                status: booking.status,
+                createdAt: booking.createdAt
+            }))
+        });
+    } catch (error) {
+        console.error('❌ Error fetching all bookings:', error);
+        res.status(500).json({ 
+            success: false,
+            error: "Failed to fetch bookings",
+            details: error.message
+        });
+    }
+});
+
+// Get Booking Statistics for a Labor
+app.get('/api/bookings/labor/:laborId/stats', async (req, res) => {
+    try {
+        const stats = await Booking.aggregate([
+            { $match: { labor_id: req.params.laborId } },
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 },
+                    totalAmount: { $sum: '$amount' }
+                }
+            }
+        ]);
+
+        // Format statistics
+        const bookingStats = {
+            total: 0,
+            pending: 0,
+            confirmed: 0,
+            completed: 0,
+            rejected: 0,
+            totalAmount: 0
+        };
+
+        stats.forEach(stat => {
+            bookingStats[stat._id.toLowerCase()] = stat.count;
+            bookingStats.total += stat.count;
+            bookingStats.totalAmount += stat.totalAmount;
+        });
+
+        res.json({
+            success: true,
+            stats: bookingStats
+        });
+    } catch (error) {
+        console.error('❌ Error fetching booking statistics:', error);
+        res.status(500).json({ 
+            success: false,
+            error: "Failed to fetch booking statistics",
+            details: error.message
+        });
     }
 });
 
