@@ -90,7 +90,8 @@ const laborSchema = new mongoose.Schema({
     experience: { type: Number },
     isBookmarked: { type: Boolean, default: false },
     registeredAt: { type: Date, default: Date.now },
-    mobile_number: { type: String }
+    mobile_number: { type: String },
+    googleId: { type: String, sparse: true }
 });
 
 const Labor = mongoose.model('Labor', laborSchema);
@@ -1736,7 +1737,18 @@ app.get('/check-env', (req, res) => {
 // Update the register worker endpoint
 app.post('/api/labors/auth/register', async (req, res) => {
     try {
-        const { name, location, skill, pricePerDay, imageUrl, category, specialization, experience, mobile_number } = req.body;
+        const { 
+            name, 
+            location, 
+            skill, 
+            pricePerDay, 
+            imageUrl, 
+            category, 
+            specialization, 
+            experience, 
+            mobile_number,
+            googleId
+        } = req.body;
 
         // Log the incoming data
         console.log('Incoming data:', req.body);
@@ -1751,6 +1763,16 @@ app.post('/api/labors/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'Mobile number cannot be empty' });
         }
 
+        // If googleId is provided, check if it's already registered
+        if (googleId) {
+            const existingLabor = await Labor.findOne({ googleId });
+            if (existingLabor) {
+                return res.status(400).json({ 
+                    error: 'A labor is already registered with this Google ID' 
+                });
+            }
+        }
+
         // Create a new labor using the mongoose model
         const newLabor = new Labor({
             name,
@@ -1761,8 +1783,9 @@ app.post('/api/labors/auth/register', async (req, res) => {
             category,
             specialization,
             experience,
-            mobile_number, // Save mobile number
-            isBookmarked: false // Default value
+            mobile_number,
+            googleId, // Will be undefined if not provided
+            isBookmarked: false
         });
 
         // Save to MongoDB
@@ -1770,7 +1793,11 @@ app.post('/api/labors/auth/register', async (req, res) => {
 
         // Generate JWT token
         const token = jwt.sign(
-            { id: newLabor._id, mobile_number: newLabor.mobile_number },
+            { 
+                id: newLabor._id, 
+                mobile_number: newLabor.mobile_number,
+                googleId: newLabor.googleId 
+            },
             JWT_SECRET,
             { expiresIn: '7d' }
         );
@@ -1790,7 +1817,8 @@ app.post('/api/labors/auth/register', async (req, res) => {
                 experience: newLabor.experience,
                 availability_status: newLabor.availability_status,
                 registeredAt: newLabor.registeredAt,
-                isBookmarked: newLabor.isBookmarked
+                isBookmarked: newLabor.isBookmarked,
+                googleId: newLabor.googleId
             }
         });
     } catch (error) {
@@ -1846,6 +1874,42 @@ app.get('/api/labors/profile/:phoneNumber', authenticateToken, async (req, res) 
             availability_status: laborer.availability_status,
             registeredAt: laborer.registeredAt,
             isBookmarked: laborer.isBookmarked
+        });
+    } catch (error) {
+        console.error('Error fetching laborer profile:', error);
+        res.status(500).json({ error: 'Server error', details: error.message });
+    }
+});
+
+// Add new endpoint for getting labor profile by Google ID
+app.get('/api/labors/profile/google/:googleId', authenticateToken, async (req, res) => {
+    try {
+        const { googleId } = req.params;
+        console.log(`Fetching profile for Google ID: ${googleId}`); // Debug log
+
+        // Find the laborer by googleId
+        const laborer = await Labor.findOne({ googleId });
+        console.log('Laborer found:', laborer); // Debug log
+
+        if (!laborer) {
+            return res.status(404).json({ error: 'Laborer not found' });
+        }
+
+        // Return the laborer's profile
+        res.status(200).json({
+            id: laborer._id,
+            name: laborer.name,
+            skill: laborer.skill,
+            location: laborer.location,
+            pricePerDay: laborer.pricePerDay,
+            imageUrl: laborer.imageUrl,
+            category: laborer.category,
+            specialization: laborer.specialization,
+            experience: laborer.experience,
+            availability_status: laborer.availability_status,
+            registeredAt: laborer.registeredAt,
+            isBookmarked: laborer.isBookmarked,
+            googleId: laborer.googleId
         });
     } catch (error) {
         console.error('Error fetching laborer profile:', error);
@@ -1981,26 +2045,34 @@ app.get('/api/labors/auth/check-google/:googleId', async (req, res) => {
             });
         }
 
-        // Check if the Google ID exists in the User collection
-        const user = await User.findOne({ googleId });
+        // Check if the Google ID exists in the Labor collection
+        const labor = await Labor.findOne({ googleId });
 
-        if (user) {
-            // User exists
+        if (labor) {
+            // Labor exists with this Google ID
             return res.status(200).json({ 
                 exists: true,
-                user: {
-                    id: user._id,
-                    fullName: user.fullName,
-                    email: user.email,
-                    profilePicture: user.profilePicture,
-                    isVerified: user.isVerified
+                labor: {
+                    id: labor._id,
+                    name: labor.name,
+                    skill: labor.skill,
+                    location: labor.location,
+                    pricePerDay: labor.pricePerDay,
+                    imageUrl: labor.imageUrl,
+                    category: labor.category,
+                    specialization: labor.specialization,
+                    experience: labor.experience,
+                    availability_status: labor.availability_status,
+                    registeredAt: labor.registeredAt,
+                    isBookmarked: labor.isBookmarked,
+                    googleId: labor.googleId
                 }
             });
         } else {
-            // User does not exist
+            // Labor does not exist
             return res.status(404).json({ 
                 exists: false,
-                message: 'User not found with this Google ID'
+                message: 'Labor not found with this Google ID'
             });
         }
     } catch (error) {
