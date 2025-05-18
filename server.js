@@ -635,6 +635,8 @@ app.put('/api/user/profile', authenticateToken, upload.single('profilePicture'),
 const MessageSchema = new mongoose.Schema({
     text: String,
     senderName: String,
+    senderId: String,
+    receiverId: String,
     timestamp: String,
     roomId: String,
     receiverName: String,
@@ -654,28 +656,39 @@ io.on("connection", (socket) => {
     // Handle joining a specific chat room
     socket.on("joinRoom", (roomId) => {
         socket.join(roomId);
-        console.log(`User ${socket.id} joined room ${roomId}`); // ✅ Fixed template literal
+        console.log(`User ${socket.id} joined room ${roomId}`);
     });
 
     // Handle incoming messages
     socket.on("sendMessage", async (data) => {
         try {
-            // Save message to database
-            const newMessage = new Message(data);
-            await newMessage.save();
+            console.log('Received message data:', data); // Debug log
 
-            // If roomId is provided, emit to that room only
+            // Create new message with sender and receiver IDs
+            const newMessage = new Message({
+                text: data.text,
+                senderName: data.senderName,
+                senderId: data.senderId,
+                receiverId: data.receiverId,
+                timestamp: data.timestamp,
+                roomId: data.roomId,
+                receiverName: data.receiverName,
+                isRead: false
+            });
+
+            await newMessage.save();
+            console.log('Saved message:', newMessage); // Debug log
+
+            // Emit to the specific room
             if (data.roomId) {
-                io.to(data.roomId).emit("newMessage", data);
-                console.log(`Message sent to room ${data.roomId}`); // ✅ Fixed template literal
+                io.to(data.roomId).emit("newMessage", newMessage);
+                console.log(`Message sent to room ${data.roomId}`);
             } else {
-                // Otherwise broadcast to everyone (fallback)
-                io.emit("newMessage", data);
+                io.emit("newMessage", newMessage);
                 console.log("Message broadcast to all users (no room specified)");
             }
         } catch (error) {
             console.error("❌ Error saving message:", error);
-            // Notify sender of error
             socket.emit("messageError", { error: "Failed to save message" });
         }
     });
@@ -704,23 +717,47 @@ io.on("connection", (socket) => {
 // API endpoint to get messages for a specific room
 app.get('/api/messages', async (req, res) => {
     try {
-        const { roomId } = req.query;
+        const { roomId, userId, laborId } = req.query;
+        console.log('Fetching messages with params:', { roomId, userId, laborId }); // Debug log
 
-        // Build query based on roomId if provided
+        // Build query based on provided parameters
         let query = {};
+        
         if (roomId) {
             query.roomId = roomId;
+        } else if (userId && laborId) {
+            // If roomId is not provided but userId and laborId are, construct the roomId
+            query.roomId = `current_user_${userId}_${laborId}`;
         }
+
+        console.log('Query:', query); // Debug log
 
         // Get messages sorted by timestamp
         const messages = await Message.find(query).sort({ timestamp: 1 });
+        console.log(`Retrieved ${messages.length} messages`); // Debug log
 
-        console.log(`Retrieved ${messages.length} messages for room ${roomId || 'all'}`);
-        res.json(messages);
+        res.json({
+            success: true,
+            messages: messages.map(msg => ({
+                id: msg._id,
+                text: msg.text,
+                senderName: msg.senderName,
+                senderId: msg.senderId,
+                receiverId: msg.receiverId,
+                timestamp: msg.timestamp,
+                roomId: msg.roomId,
+                receiverName: msg.receiverName,
+                isRead: msg.isRead
+            }))
+        });
 
     } catch (error) {
         console.error('❌ Error fetching messages:', error);
-        res.status(500).json({ error: 'Failed to fetch messages' });
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to fetch messages',
+            details: error.message 
+        });
     }
 });
 
@@ -735,15 +772,68 @@ app.delete('/api/messages/:id', async (req, res) => {
     }
 });
 
-// API endpoint to get all chat rooms
+// API endpoint to get all chat rooms for a user or labor
 app.get('/api/rooms', async (req, res) => {
     try {
-        // Get distinct roomIds
-        const rooms = await Message.distinct('roomId');
-        res.json(rooms.filter(room => room)); // Filter out null/undefined
+        const { userId, laborId } = req.query;
+        console.log('Fetching rooms for:', { userId, laborId }); // Debug log
+
+        let query = {};
+        if (userId) {
+            query.$or = [
+                { senderId: userId },
+                { receiverId: userId }
+            ];
+        } else if (laborId) {
+            query.$or = [
+                { senderId: laborId },
+                { receiverId: laborId }
+            ];
+        }
+
+        // Get distinct roomIds with the latest message for each room
+        const rooms = await Message.aggregate([
+            { $match: query },
+            { $sort: { timestamp: -1 } },
+            {
+                $group: {
+                    _id: "$roomId",
+                    lastMessage: { $first: "$$ROOT" },
+                    messageCount: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    roomId: "$_id",
+                    lastMessage: 1,
+                    messageCount: 1,
+                    _id: 0
+                }
+            }
+        ]);
+
+        console.log(`Found ${rooms.length} rooms`); // Debug log
+
+        res.json({
+            success: true,
+            rooms: rooms.map(room => ({
+                roomId: room.roomId,
+                lastMessage: {
+                    text: room.lastMessage.text,
+                    senderName: room.lastMessage.senderName,
+                    timestamp: room.lastMessage.timestamp,
+                    isRead: room.lastMessage.isRead
+                },
+                messageCount: room.messageCount
+            }))
+        });
     } catch (error) {
         console.error('❌ Error fetching rooms:', error);
-        res.status(500).json({ error: 'Failed to fetch rooms' });
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to fetch rooms',
+            details: error.message 
+        });
     }
 });
 
@@ -802,9 +892,10 @@ app.get('/api/bookings/labor/:laborId', async (req, res) => {
 app.get('/api/bookings/labor/:laborId/all', async (req, res) => {
     try {
         const { status, startDate, endDate } = req.query;
+        const laborId = req.params.laborId;
         
         // Build query
-        const query = { labor_id: req.params.laborId };
+        const query = { labor_id: laborId };
         
         // Add status filter if provided
         if (status) {
@@ -831,7 +922,8 @@ app.get('/api/bookings/labor/:laborId/all', async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
 
-        const [bookings, totalCount] = await Promise.all([
+        // First try to find in bookings collection
+        let [bookings, totalCount] = await Promise.all([
             Booking.find(query)
                 .populate('user_id', 'fullName phoneNumber email')
                 .sort({ createdAt: -1 })
@@ -840,20 +932,57 @@ app.get('/api/bookings/labor/:laborId/all', async (req, res) => {
             Booking.countDocuments(query)
         ]);
 
-        // Get booking statistics
-        const stats = await Booking.aggregate([
-            { $match: { labor_id: req.params.laborId } },
-            {
-                $group: {
-                    _id: '$status',
-                    count: { $sum: 1 },
-                    totalAmount: { $sum: '$amount' }
+        // If no bookings found, try requests collection
+        if (totalCount === 0) {
+            console.log('No bookings found, checking requests collection...');
+            [bookings, totalCount] = await Promise.all([
+                Request.find(query)
+                    .populate('from', 'fullName phoneNumber email')
+                    .sort({ createdAt: -1 })
+                    .skip(skip)
+                    .limit(limit),
+                Request.countDocuments(query)
+            ]);
+
+            // Transform request data to match booking format
+            bookings = bookings.map(request => ({
+                _id: request._id,
+                user_id: request.from,
+                labor_id: request.requestId,
+                status: request.status,
+                amount: request.offeredAmount,
+                start_time: request.requestOn,
+                end_time: request.acceptBefore,
+                createdAt: request.createdAt
+            }));
+        }
+
+        // Get statistics from both collections
+        const [bookingStats, requestStats] = await Promise.all([
+            Booking.aggregate([
+                { $match: { labor_id: laborId } },
+                {
+                    $group: {
+                        _id: '$status',
+                        count: { $sum: 1 },
+                        totalAmount: { $sum: '$amount' }
+                    }
                 }
-            }
+            ]),
+            Request.aggregate([
+                { $match: { requestId: laborId } },
+                {
+                    $group: {
+                        _id: '$status',
+                        count: { $sum: 1 },
+                        totalAmount: { $sum: '$offeredAmount' }
+                    }
+                }
+            ])
         ]);
 
-        // Format statistics
-        const bookingStats = {
+        // Combine statistics
+        const bookingStatsObj = {
             total: totalCount,
             pending: 0,
             confirmed: 0,
@@ -862,9 +991,10 @@ app.get('/api/bookings/labor/:laborId/all', async (req, res) => {
             totalAmount: 0
         };
 
-        stats.forEach(stat => {
-            bookingStats[stat._id.toLowerCase()] = stat.count;
-            bookingStats.totalAmount += stat.totalAmount;
+        [...bookingStats, ...requestStats].forEach(stat => {
+            const status = stat._id.toLowerCase();
+            bookingStatsObj[status] = (bookingStatsObj[status] || 0) + stat.count;
+            bookingStatsObj.totalAmount += stat.totalAmount;
         });
 
         res.json({
@@ -872,13 +1002,13 @@ app.get('/api/bookings/labor/:laborId/all', async (req, res) => {
             currentPage: page,
             totalPages: Math.ceil(totalCount / limit),
             totalBookings: totalCount,
-            stats: bookingStats,
+            stats: bookingStatsObj,
             bookings: bookings.map(booking => ({
                 id: booking._id,
-                user: booking.user_id,
-                amount: booking.amount,
-                start_time: booking.start_time,
-                end_time: booking.end_time,
+                user: booking.user_id || booking.from,
+                amount: booking.amount || booking.offeredAmount,
+                start_time: booking.start_time || booking.requestOn,
+                end_time: booking.end_time || booking.acceptBefore,
                 status: booking.status,
                 createdAt: booking.createdAt
             }))
