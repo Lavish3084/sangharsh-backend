@@ -494,13 +494,70 @@ app.post('/api/labors/auth/signup', upload.single('idProof'), async (req, res) =
     }
 });
 
-// Google Sign In
+// Google Sign In Check
+app.get('/api/labors/auth/check-google/:googleId', async (req, res) => {
+    try {
+        const { googleId } = req.params;
+        console.log('📥 Checking Google ID:', googleId);
+
+        // Find user by Google ID
+        let user = await User.findOne({ googleId });
+        
+        if (!user) {
+            console.log('❌ No user found with Google ID:', googleId);
+            return res.status(404).json({ 
+                error: 'User not found',
+                exists: false
+            });
+        }
+
+        // Generate JWT token
+        const token = jwt.sign(
+            { 
+                id: user._id, 
+                email: user.email,
+                type: 'User' // Add user type for chat functionality
+            },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        console.log('✅ User found with Google ID:', googleId);
+
+        res.status(200).json({
+            exists: true,
+            token,
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                phoneNumber: user.phoneNumber,
+                isVerified: user.isVerified,
+                profilePicture: user.profilePicture,
+                type: 'User' // Add user type for chat functionality
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error checking Google ID:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message
+        });
+    }
+});
+
+// Update Google Sign In endpoint
 app.post('/api/labors/auth/google', async (req, res) => {
     try {
         const { googleId, email, fullName, profilePicture } = req.body;
+        console.log('📥 Google Sign In request:', { googleId, email, fullName });
 
         if (!googleId || !email) {
-            return res.status(400).json({ error: 'Google ID and email are required' });
+            console.error('❌ Missing required fields:', { googleId, email });
+            return res.status(400).json({ 
+                error: 'Google ID and email are required',
+                details: 'Please provide both googleId and email'
+            });
         }
 
         // Find or create user
@@ -514,6 +571,7 @@ app.post('/api/labors/auth/google', async (req, res) => {
                 // Update existing user with Google info
                 user.googleId = googleId;
                 user.profilePicture = profilePicture || user.profilePicture;
+                console.log('📝 Updating existing user with Google info');
             } else {
                 // Create new user
                 user = new User({
@@ -522,45 +580,46 @@ app.post('/api/labors/auth/google', async (req, res) => {
                     googleId,
                     profilePicture,
                     isVerified: true,
-                    phoneNumber: `google-${Date.now()}` // Placeholder, should be updated later
+                    phoneNumber: `google-${Date.now()}` // Placeholder
                 });
+                console.log('📝 Creating new user with Google info');
             }
 
             await user.save();
         }
 
-        try {
-            // Ensure JWT_SECRET is defined
-            if (!JWT_SECRET) {
-                throw new Error("Missing JWT_SECRET");
+        // Generate JWT token
+        const token = jwt.sign(
+            { 
+                id: user._id, 
+                email: user.email,
+                type: 'User' // Add user type for chat functionality
+            },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        console.log('✅ Google sign-in successful for user:', user._id);
+
+        res.status(200).json({
+            message: 'Google sign-in successful',
+            token,
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                phoneNumber: user.phoneNumber,
+                isVerified: user.isVerified,
+                profilePicture: user.profilePicture,
+                type: 'User' // Add user type for chat functionality
             }
-
-            // Generate JWT token
-            const token = jwt.sign(
-                { id: user._id, email: user.email },
-                JWT_SECRET,
-                { expiresIn: '7d' }
-            );
-
-            res.status(200).json({
-                message: 'Google sign-in successful',
-                token,
-                user: {
-                    id: user._id,
-                    fullName: user.fullName,
-                    email: user.email,
-                    phoneNumber: user.phoneNumber,
-                    isVerified: user.isVerified,
-                    profilePicture: user.profilePicture
-                }
-            });
-        } catch (error) {
-            console.error('❌ Error in Google sign-in:', error.message);
-            res.status(500).json({ error: 'Internal server error' });
-        }
+        });
     } catch (error) {
-        console.error('❌ Error in Google sign-in:', error.message);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('❌ Error in Google sign-in:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message
+        });
     }
 });
 
