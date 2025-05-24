@@ -1162,25 +1162,41 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
             await chatRoom.save();
         }
 
-        // Populate participant details based on their type
+        // First populate the chat room without dynamic model references
         const populatedChatRoom = await ChatRoom.findById(chatRoom._id)
-            .populate({
-                path: 'participants',
-                select: 'fullName name profilePicture',
-                model: function(doc) {
-                    return doc.participantTypes[doc.participants.indexOf(doc._id)] === 'User' ? 'User' : 'Labor';
-                }
-            })
             .populate('lastMessage');
+
+        // Then manually populate participant details
+        const participants = await Promise.all(
+            chatRoom.participants.map(async (participantId, index) => {
+                const type = chatRoom.participantTypes[index];
+                const model = type === 'User' ? User : Labor;
+                const participant = await model.findById(participantId)
+                    .select('fullName name profilePicture');
+                return {
+                    _id: participantId,
+                    type: type,
+                    ...participant.toObject()
+                };
+            })
+        );
+
+        // Construct the final response
+        const response = {
+            _id: populatedChatRoom._id,
+            participants: participants,
+            lastMessage: populatedChatRoom.lastMessage,
+            createdAt: populatedChatRoom.createdAt,
+            updatedAt: populatedChatRoom.updatedAt
+        };
 
         console.log('✅ Chat room created/retrieved:', {
             chatRoomId: chatRoom._id,
-            participants: chatRoom.participants,
-            participantTypes: chatRoom.participantTypes
+            participants: participants.map(p => ({ id: p._id, type: p.type }))
         });
 
         res.status(200).json({ 
-            chatRoom: populatedChatRoom,
+            chatRoom: response,
             status: 'success'
         });
     } catch (error) {
@@ -1204,20 +1220,40 @@ app.get('/api/chat/rooms', authenticateToken, async (req, res) => {
             participants: userId,
             participantTypes: userType
         })
-        .populate({
-            path: 'participants',
-            select: 'fullName name profilePicture',
-            model: function(doc) {
-                return doc.participantTypes[doc.participants.indexOf(doc._id)] === 'User' ? 'User' : 'Labor';
-            }
-        })
         .populate('lastMessage')
         .sort({ updatedAt: -1 });
 
-        console.log('✅ Found chat rooms:', chatRooms.length);
+        // Manually populate participant details for each chat room
+        const populatedChatRooms = await Promise.all(
+            chatRooms.map(async (chatRoom) => {
+                const participants = await Promise.all(
+                    chatRoom.participants.map(async (participantId, index) => {
+                        const type = chatRoom.participantTypes[index];
+                        const model = type === 'User' ? User : Labor;
+                        const participant = await model.findById(participantId)
+                            .select('fullName name profilePicture');
+                        return {
+                            _id: participantId,
+                            type: type,
+                            ...participant.toObject()
+                        };
+                    })
+                );
+
+                return {
+                    _id: chatRoom._id,
+                    participants: participants,
+                    lastMessage: chatRoom.lastMessage,
+                    createdAt: chatRoom.createdAt,
+                    updatedAt: chatRoom.updatedAt
+                };
+            })
+        );
+
+        console.log('✅ Found chat rooms:', populatedChatRooms.length);
 
         res.status(200).json({ 
-            chatRooms,
+            chatRooms: populatedChatRooms,
             status: 'success'
         });
     } catch (error) {
