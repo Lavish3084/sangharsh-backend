@@ -494,11 +494,11 @@ app.post('/api/labors/auth/signup', upload.single('idProof'), async (req, res) =
     }
 });
 
-// Google Sign In Check
-app.get('/api/labors/auth/check-google/:googleId', async (req, res) => {
+// User Google Sign In Check
+app.get('/api/users/auth/check-google/:googleId', async (req, res) => {
     try {
         const { googleId } = req.params;
-        console.log('📥 Checking Google ID:', googleId);
+        console.log('📥 Checking User Google ID:', googleId);
 
         // Find user by Google ID
         let user = await User.findOne({ googleId });
@@ -516,7 +516,7 @@ app.get('/api/labors/auth/check-google/:googleId', async (req, res) => {
             { 
                 id: user._id, 
                 email: user.email,
-                type: 'User' // Add user type for chat functionality
+                type: 'User'
             },
             JWT_SECRET,
             { expiresIn: '7d' }
@@ -534,11 +534,11 @@ app.get('/api/labors/auth/check-google/:googleId', async (req, res) => {
                 phoneNumber: user.phoneNumber,
                 isVerified: user.isVerified,
                 profilePicture: user.profilePicture,
-                type: 'User' // Add user type for chat functionality
+                type: 'User'
             }
         });
     } catch (error) {
-        console.error('❌ Error checking Google ID:', error);
+        console.error('❌ Error checking User Google ID:', error);
         res.status(500).json({ 
             error: 'Internal server error',
             details: error.message
@@ -546,11 +546,82 @@ app.get('/api/labors/auth/check-google/:googleId', async (req, res) => {
     }
 });
 
-// Update Google Sign In endpoint
-app.post('/api/labors/auth/google', async (req, res) => {
+// Labor Google Sign In Check
+app.get('/api/labors/auth/check-google/:googleId', async (req, res) => {
+    try {
+        const { googleId } = req.params;
+        console.log('📥 Checking Labor Google ID:', googleId);
+
+        if (!googleId) {
+            console.error('❌ No Google ID provided');
+            return res.status(400).json({
+                error: 'Google ID is required',
+                exists: false
+            });
+        }
+
+        // Find labor by Google ID in Labor collection only
+        const labor = await Labor.findOne({ googleId: googleId });
+        
+        if (!labor) {
+            console.log('❌ No labor found with Google ID:', googleId);
+            return res.status(404).json({ 
+                error: 'Labor not found',
+                exists: false,
+                message: 'No labor account found with this Google ID'
+            });
+        }
+
+        // Generate JWT token with Labor type
+        const token = jwt.sign(
+            { 
+                id: labor._id, 
+                email: labor.email,
+                type: 'Labor',
+                name: labor.name
+            },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        console.log('✅ Labor found with Google ID:', googleId);
+
+        // Return labor details
+        res.status(200).json({
+            exists: true,
+            token,
+            labor: {
+                id: labor._id,
+                name: labor.name,
+                email: labor.email,
+                mobile_number: labor.mobile_number,
+                skill: labor.skill,
+                location: labor.location,
+                pricePerDay: labor.pricePerDay,
+                imageUrl: labor.imageUrl,
+                category: labor.category,
+                specialization: labor.specialization,
+                experience: labor.experience,
+                availability_status: labor.availability_status,
+                type: 'Labor',
+                isVerified: true
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error checking Labor Google ID:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message,
+            exists: false
+        });
+    }
+});
+
+// User Google Sign In
+app.post('/api/users/auth/google', async (req, res) => {
     try {
         const { googleId, email, fullName, profilePicture } = req.body;
-        console.log('📥 Google Sign In request:', { googleId, email, fullName });
+        console.log('📥 User Google Sign In request:', { googleId, email, fullName });
 
         if (!googleId || !email) {
             console.error('❌ Missing required fields:', { googleId, email });
@@ -593,13 +664,13 @@ app.post('/api/labors/auth/google', async (req, res) => {
             { 
                 id: user._id, 
                 email: user.email,
-                type: 'User' // Add user type for chat functionality
+                type: 'User'
             },
             JWT_SECRET,
             { expiresIn: '7d' }
         );
 
-        console.log('✅ Google sign-in successful for user:', user._id);
+        console.log('✅ User Google sign-in successful:', user._id);
 
         res.status(200).json({
             message: 'Google sign-in successful',
@@ -611,11 +682,99 @@ app.post('/api/labors/auth/google', async (req, res) => {
                 phoneNumber: user.phoneNumber,
                 isVerified: user.isVerified,
                 profilePicture: user.profilePicture,
-                type: 'User' // Add user type for chat functionality
+                type: 'User'
             }
         });
     } catch (error) {
-        console.error('❌ Error in Google sign-in:', error);
+        console.error('❌ Error in User Google sign-in:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message
+        });
+    }
+});
+
+// Labor Google Sign In
+app.post('/api/labors/auth/google', async (req, res) => {
+    try {
+        const { googleId, email, name, profilePicture } = req.body;
+        console.log('📥 Labor Google Sign In request:', { googleId, email, name });
+
+        if (!googleId || !email) {
+            console.error('❌ Missing required fields:', { googleId, email });
+            return res.status(400).json({ 
+                error: 'Google ID and email are required',
+                details: 'Please provide both googleId and email'
+            });
+        }
+
+        // Find or create labor
+        let labor = await Labor.findOne({ googleId });
+
+        if (!labor) {
+            // Check if labor exists with this email
+            labor = await Labor.findOne({ email });
+
+            if (labor) {
+                // Update existing labor with Google info
+                labor.googleId = googleId;
+                labor.imageUrl = profilePicture || labor.imageUrl;
+                console.log('📝 Updating existing labor with Google info');
+            } else {
+                // Create new labor
+                labor = new Labor({
+                    name,
+                    email,
+                    googleId,
+                    imageUrl: profilePicture,
+                    isVerified: true,
+                    mobile_number: `google-${Date.now()}`, // Placeholder
+                    availability_status: "Available",
+                    skill: "General", // Default skill
+                    location: "Not specified", // Default location
+                    pricePerDay: 0, // Default price
+                    category: "General" // Default category
+                });
+                console.log('📝 Creating new labor with Google info');
+            }
+
+            await labor.save();
+        }
+
+        // Generate JWT token
+        const token = jwt.sign(
+            { 
+                id: labor._id, 
+                email: labor.email,
+                type: 'Labor'
+            },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        console.log('✅ Labor Google sign-in successful:', labor._id);
+
+        res.status(200).json({
+            message: 'Google sign-in successful',
+            token,
+            labor: {
+                id: labor._id,
+                name: labor.name,
+                email: labor.email,
+                mobile_number: labor.mobile_number,
+                skill: labor.skill,
+                location: labor.location,
+                pricePerDay: labor.pricePerDay,
+                imageUrl: labor.imageUrl,
+                category: labor.category,
+                specialization: labor.specialization,
+                experience: labor.experience,
+                availability_status: labor.availability_status,
+                type: 'Labor'
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error in Labor Google sign-in:', error);
         res.status(500).json({ 
             error: 'Internal server error',
             details: error.message
