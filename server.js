@@ -1007,12 +1007,24 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
 
         // Manually populate sender and receiver details
         const senderModel = senderType === 'User' ? User : Labor;
-        const receiverModel = receiverType === 'User' ? Labor : User;
+        const receiverModel = receiverType === 'User' ? User : Labor;
 
         const [sender, receiver] = await Promise.all([
             senderModel.findById(senderId).select('fullName name profilePicture'),
             receiverModel.findById(receiverId).select('fullName name profilePicture')
         ]);
+
+        // Handle cases where sender or receiver is not found
+        if (!sender || !receiver) {
+            console.error('❌ Participant not found:', { 
+                senderFound: !!sender, 
+                receiverFound: !!receiver 
+            });
+            return res.status(404).json({ 
+                error: 'Participant not found',
+                details: 'One or more participants could not be found'
+            });
+        }
 
         // Construct the response
         const response = {
@@ -1021,12 +1033,14 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
             sender: {
                 _id: senderId,
                 type: senderType,
-                ...sender.toObject()
+                name: sender.name || sender.fullName,
+                profilePicture: sender.profilePicture
             },
             receiver: {
                 _id: receiverId,
                 type: receiverType,
-                ...receiver.toObject()
+                name: receiver.name || receiver.fullName,
+                profilePicture: receiver.profilePicture
             },
             senderType: message.senderType,
             receiverType: message.receiverType,
@@ -1095,18 +1109,30 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
                     receiverModel.findById(message.receiver).select('fullName name profilePicture')
                 ]);
 
+                // Skip messages where participants are not found
+                if (!sender || !receiver) {
+                    console.warn('⚠️ Skipping message due to missing participant:', {
+                        messageId: message._id,
+                        senderFound: !!sender,
+                        receiverFound: !!receiver
+                    });
+                    return null;
+                }
+
                 return {
                     _id: message._id,
                     content: message.content,
                     sender: {
                         _id: message.sender,
                         type: message.senderType,
-                        ...sender.toObject()
+                        name: sender.name || sender.fullName,
+                        profilePicture: sender.profilePicture
                     },
                     receiver: {
                         _id: message.receiver,
                         type: message.receiverType,
-                        ...receiver.toObject()
+                        name: receiver.name || receiver.fullName,
+                        profilePicture: receiver.profilePicture
                     },
                     senderType: message.senderType,
                     receiverType: message.receiverType,
@@ -1115,13 +1141,16 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
             })
         );
 
+        // Filter out null messages (where participants were not found)
+        const validMessages = populatedMessages.filter(msg => msg !== null);
+
         console.log('✅ Retrieved messages:', {
             chatRoomId,
-            messageCount: populatedMessages.length
+            messageCount: validMessages.length
         });
 
         res.status(200).json({ 
-            messages: populatedMessages,
+            messages: validMessages,
             status: 'success'
         });
     } catch (error) {
