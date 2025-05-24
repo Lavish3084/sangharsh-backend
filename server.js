@@ -1189,14 +1189,18 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
             });
         }
 
-        // Find existing chat room with both participants
+        // Find existing chat room with both participants, regardless of who created it
         let chatRoom = await ChatRoom.findOne({
             $and: [
-                { participants: currentUserId },
-                { participants: participantId },
-                { participantTypes: currentUserType },
-                { participantTypes: participantType }
+                { participants: { $all: [currentUserId, participantId] } },
+                { participantTypes: { $all: [currentUserType, participantType] } }
             ]
+        });
+
+        console.log('🔍 Searching for existing chat room:', {
+            participants: [currentUserId, participantId],
+            types: [currentUserType, participantType],
+            found: !!chatRoom
         });
 
         if (!chatRoom) {
@@ -1207,6 +1211,9 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
                 participantTypes: [currentUserType, participantType]
             });
             await chatRoom.save();
+            console.log('✅ New chat room created:', chatRoom._id);
+        } else {
+            console.log('✅ Found existing chat room:', chatRoom._id);
         }
 
         // First populate the chat room without dynamic model references
@@ -1272,9 +1279,10 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
             updatedAt: populatedChatRoom.updatedAt
         };
 
-        console.log('✅ Chat room created/retrieved:', {
+        console.log('✅ Chat room details:', {
             chatRoomId: chatRoom._id,
-            participants: participants.map(p => ({ id: p._id, type: p.type }))
+            participants: participants.map(p => ({ id: p._id, type: p.type })),
+            hasLastMessage: !!populatedChatRoom.lastMessage
         });
 
         res.status(200).json({ 
