@@ -700,46 +700,58 @@ io.on('connection', (socket) => {
     });
 });
 
-// Create or get chat room
-app.post('/api/chat/room', authenticateToken, async (req, res) => {
-    try {
-        const { participantId, participantType } = req.body;
-        const currentUserId = req.user.id;
-
-        // Find existing chat room
-        let chatRoom = await ChatRoom.findOne({
-            participants: { $all: [currentUserId, participantId] }
-        });
-
-        if (!chatRoom) {
-            // Create new chat room
-            chatRoom = new ChatRoom({
-                participants: [currentUserId, participantId],
-                participantType: [req.user.type, participantType]
-            });
-            await chatRoom.save();
-        }
-
-        res.status(200).json({ chatRoom });
-    } catch (error) {
-        console.error('Error creating chat room:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
 // Send message
 app.post('/api/chat/message', authenticateToken, async (req, res) => {
     try {
         const { chatRoomId, content } = req.body;
         const senderId = req.user.id;
+        
+        // Log the incoming request
+        console.log('📥 Incoming message request:', {
+            chatRoomId,
+            content,
+            senderId,
+            userType: req.user.type
+        });
+
+        // Validate required fields
+        if (!chatRoomId || !content) {
+            console.error('❌ Missing required fields:', { chatRoomId, content });
+            return res.status(400).json({ 
+                error: 'Missing required fields',
+                details: 'chatRoomId and content are required'
+            });
+        }
+
+        // Verify chat room exists and user is a participant
+        const chatRoom = await ChatRoom.findById(chatRoomId);
+        if (!chatRoom) {
+            console.error('❌ Chat room not found:', chatRoomId);
+            return res.status(404).json({ error: 'Chat room not found' });
+        }
+
+        if (!chatRoom.participants.includes(senderId)) {
+            console.error('❌ User not authorized in chat room:', { senderId, chatRoomId });
+            return res.status(403).json({ error: 'Not authorized in this chat room' });
+        }
+
+        // Determine sender type based on user type
+        const senderType = req.user.type || 'User'; // Default to 'User' if not specified
 
         // Create new message
         const message = new Message({
             chatRoom: chatRoomId,
             sender: senderId,
-            senderType: req.user.type,
+            senderType: senderType,
             content,
             readBy: [senderId]
+        });
+
+        console.log('📝 Creating new message:', {
+            chatRoomId,
+            senderId,
+            senderType,
+            contentLength: content.length
         });
 
         await message.save();
@@ -750,13 +762,132 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
             updatedAt: new Date()
         });
 
-        // Emit message to all users in the chat room
-        io.to(chatRoomId).emit('new_message', message);
+        // Populate sender details for the response
+        const populatedMessage = await Message.findById(message._id)
+            .populate('sender', 'fullName name profilePicture');
 
-        res.status(201).json({ message });
+        // Emit message to all users in the chat room
+        io.to(chatRoomId).emit('new_message', populatedMessage);
+
+        console.log('✅ Message sent successfully:', {
+            messageId: message._id,
+            chatRoomId,
+            senderId
+        });
+
+        res.status(201).json({ 
+            message: populatedMessage,
+            status: 'success'
+        });
     } catch (error) {
-        console.error('Error sending message:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('❌ Error sending message:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message
+        });
+    }
+});
+
+// Get messages for a chat room
+app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) => {
+    try {
+        const { chatRoomId } = req.params;
+        const userId = req.user.id;
+
+        console.log('📥 Fetching messages for chat room:', {
+            chatRoomId,
+            userId
+        });
+
+        // Verify chat room exists and user is a participant
+        const chatRoom = await ChatRoom.findById(chatRoomId);
+        if (!chatRoom) {
+            console.error('❌ Chat room not found:', chatRoomId);
+            return res.status(404).json({ error: 'Chat room not found' });
+        }
+
+        if (!chatRoom.participants.includes(userId)) {
+            console.error('❌ User not authorized in chat room:', { userId, chatRoomId });
+            return res.status(403).json({ error: 'Not authorized in this chat room' });
+        }
+
+        const messages = await Message.find({ chatRoom: chatRoomId })
+            .populate('sender', 'fullName name profilePicture')
+            .sort({ createdAt: 1 });
+
+        console.log('✅ Retrieved messages:', {
+            chatRoomId,
+            messageCount: messages.length
+        });
+
+        res.status(200).json({ 
+            messages,
+            status: 'success'
+        });
+    } catch (error) {
+        console.error('❌ Error fetching messages:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message
+        });
+    }
+});
+
+// Create or get chat room
+app.post('/api/chat/room', authenticateToken, async (req, res) => {
+    try {
+        const { participantId, participantType } = req.body;
+        const currentUserId = req.user.id;
+
+        console.log('📥 Creating/getting chat room:', {
+            currentUserId,
+            participantId,
+            participantType
+        });
+
+        if (!participantId || !participantType) {
+            console.error('❌ Missing required fields:', { participantId, participantType });
+            return res.status(400).json({ 
+                error: 'Missing required fields',
+                details: 'participantId and participantType are required'
+            });
+        }
+
+        // Find existing chat room
+        let chatRoom = await ChatRoom.findOne({
+            participants: { $all: [currentUserId, participantId] }
+        });
+
+        if (!chatRoom) {
+            console.log('📝 Creating new chat room');
+            // Create new chat room
+            chatRoom = new ChatRoom({
+                participants: [currentUserId, participantId],
+                participantType: [req.user.type || 'User', participantType]
+            });
+            await chatRoom.save();
+        }
+
+        // Populate participant details
+        const populatedChatRoom = await ChatRoom.findById(chatRoom._id)
+            .populate('participants', 'fullName name profilePicture')
+            .populate('lastMessage');
+
+        console.log('✅ Chat room created/retrieved:', {
+            chatRoomId: chatRoom._id,
+            participants: chatRoom.participants
+        });
+
+        res.status(200).json({ 
+            chatRoom: populatedChatRoom,
+            status: 'success'
+        });
+    } catch (error) {
+        console.error('❌ Error creating chat room:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message
+        });
     }
 });
 
@@ -774,21 +905,6 @@ app.get('/api/chat/rooms', authenticateToken, async (req, res) => {
         res.status(200).json({ chatRooms });
     } catch (error) {
         console.error('Error fetching chat rooms:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Get messages for a chat room
-app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) => {
-    try {
-        const { chatRoomId } = req.params;
-        const messages = await Message.find({ chatRoom: chatRoomId })
-            .populate('sender', 'fullName name profilePicture')
-            .sort({ createdAt: 1 });
-
-        res.status(200).json({ messages });
-    } catch (error) {
-        console.error('Error fetching messages:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
