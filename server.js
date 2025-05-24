@@ -856,9 +856,9 @@ app.put('/api/user/profile', authenticateToken, upload.single('profilePicture'),
 const chatRoomSchema = new mongoose.Schema({
     participants: [{
         type: mongoose.Schema.Types.ObjectId,
-        refPath: 'participantType'
+        refPath: 'participantTypes'
     }],
-    participantType: [{
+    participantTypes: [{
         type: String,
         enum: ['User', 'Labor']
     }],
@@ -905,7 +905,11 @@ const messageSchema = new mongoose.Schema({
     },
     readBy: [{
         type: mongoose.Schema.Types.ObjectId,
-        refPath: 'participantType'
+        refPath: 'readByTypes'
+    }],
+    readByTypes: [{
+        type: String,
+        enum: ['User', 'Labor']
     }],
     createdAt: { type: Date, default: Date.now }
 });
@@ -1143,8 +1147,8 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
             $and: [
                 { participants: currentUserId },
                 { participants: participantId },
-                { participantType: currentUserType },
-                { participantType: participantType }
+                { participantTypes: currentUserType },
+                { participantTypes: participantType }
             ]
         });
 
@@ -1153,7 +1157,7 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
             // Create new chat room with both participants and their types
             chatRoom = new ChatRoom({
                 participants: [currentUserId, participantId],
-                participantType: [currentUserType, participantType]
+                participantTypes: [currentUserType, participantType]
             });
             await chatRoom.save();
         }
@@ -1164,7 +1168,7 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
                 path: 'participants',
                 select: 'fullName name profilePicture',
                 model: function(doc) {
-                    return doc.participantType === 'User' ? 'User' : 'Labor';
+                    return doc.participantTypes[doc.participants.indexOf(doc._id)] === 'User' ? 'User' : 'Labor';
                 }
             })
             .populate('lastMessage');
@@ -1172,7 +1176,7 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
         console.log('✅ Chat room created/retrieved:', {
             chatRoomId: chatRoom._id,
             participants: chatRoom.participants,
-            participantTypes: chatRoom.participantType
+            participantTypes: chatRoom.participantTypes
         });
 
         res.status(200).json({ 
@@ -1198,13 +1202,13 @@ app.get('/api/chat/rooms', authenticateToken, async (req, res) => {
 
         const chatRooms = await ChatRoom.find({
             participants: userId,
-            participantType: userType
+            participantTypes: userType
         })
         .populate({
             path: 'participants',
             select: 'fullName name profilePicture',
             model: function(doc) {
-                return doc.participantType === 'User' ? 'User' : 'Labor';
+                return doc.participantTypes[doc.participants.indexOf(doc._id)] === 'User' ? 'User' : 'Labor';
             }
         })
         .populate('lastMessage')
