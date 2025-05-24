@@ -1150,6 +1150,38 @@ app.put('/api/chat/messages/read', authenticateToken, async (req, res) => {
     }
 });
 
+// Get all bookings for a specific labor
+app.get('/api/bookings/labor/:laborId/all', authenticateToken, async (req, res) => {
+    try {
+        const { laborId } = req.params;
+        console.log('📥 Fetching all bookings for labor:', laborId);
+
+        // Validate laborId
+        if (!laborId) {
+            console.error('❌ No labor ID provided');
+            return res.status(400).json({ 
+                error: 'Labor ID is required',
+                details: 'Please provide a valid labor ID'
+            });
+        }
+
+        // Find all bookings for this labor
+        const bookings = await Booking.find({ labor_id: laborId })
+            .populate('user_id', 'fullName phoneNumber')
+            .sort({ createdAt: -1 }); // Sort by newest first
+
+        console.log('✅ Found bookings:', bookings.length);
+
+        res.status(200).json(bookings);
+    } catch (error) {
+        console.error('❌ Error fetching labor bookings:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message
+        });
+    }
+});
+
 // Start the server
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
