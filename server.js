@@ -1095,8 +1095,11 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
             return res.status(403).json({ error: 'Not authorized in this chat room' });
         }
 
+        // Find all messages for this chat room
         const messages = await Message.find({ chatRoom: chatRoomId })
             .sort({ createdAt: 1 });
+
+        console.log('📝 Found messages:', messages.length);
 
         // Manually populate sender and receiver details for each message
         const populatedMessages = await Promise.all(
@@ -1125,17 +1128,19 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
                     sender: {
                         _id: message.sender,
                         type: message.senderType,
-                        name: sender.name || sender.fullName,
-                        profilePicture: sender.profilePicture
+                        name: sender.name || sender.fullName || 'Unknown',
+                        profilePicture: sender.profilePicture || 'https://via.placeholder.com/150'
                     },
                     receiver: {
                         _id: message.receiver,
                         type: message.receiverType,
-                        name: receiver.name || receiver.fullName,
-                        profilePicture: receiver.profilePicture
+                        name: receiver.name || receiver.fullName || 'Unknown',
+                        profilePicture: receiver.profilePicture || 'https://via.placeholder.com/150'
                     },
                     senderType: message.senderType,
                     receiverType: message.receiverType,
+                    readBy: message.readBy || [],
+                    readByTypes: message.readByTypes || [],
                     createdAt: message.createdAt
                 };
             })
