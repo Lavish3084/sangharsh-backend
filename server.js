@@ -1129,23 +1129,23 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
                 const senderDetails = {
                     _id: message.sender,
                     type: message.senderType,
-                    name: sender.name || sender.fullName || 'Unknown',
-                    profilePicture: sender.profilePicture || 'https://via.placeholder.com/150'
+                    name: sender.name || sender.fullName,
+                    profilePicture: sender.profilePicture
                 };
 
                 // Add type-specific fields for sender
                 if (message.senderType === 'Labor') {
                     Object.assign(senderDetails, {
-                        skill: sender.skill || 'Not specified',
-                        location: sender.location || 'Not specified',
-                        pricePerDay: sender.pricePerDay || 0,
-                        category: sender.category || 'General',
-                        availability_status: sender.availability_status || 'Available',
-                        mobile_number: sender.mobile_number || 'Not specified'
+                        skill: sender.skill,
+                        location: sender.location,
+                        pricePerDay: sender.pricePerDay,
+                        category: sender.category,
+                        availability_status: sender.availability_status,
+                        mobile_number: sender.mobile_number
                     });
                 } else {
                     Object.assign(senderDetails, {
-                        phoneNumber: sender.phoneNumber || 'Not specified'
+                        phoneNumber: sender.phoneNumber
                     });
                 }
 
@@ -1153,23 +1153,23 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
                 const receiverDetails = {
                     _id: message.receiver,
                     type: message.receiverType,
-                    name: receiver.name || receiver.fullName || 'Unknown',
-                    profilePicture: receiver.profilePicture || 'https://via.placeholder.com/150'
+                    name: receiver.name || receiver.fullName,
+                    profilePicture: receiver.profilePicture
                 };
 
                 // Add type-specific fields for receiver
                 if (message.receiverType === 'Labor') {
                     Object.assign(receiverDetails, {
-                        skill: receiver.skill || 'Not specified',
-                        location: receiver.location || 'Not specified',
-                        pricePerDay: receiver.pricePerDay || 0,
-                        category: receiver.category || 'General',
-                        availability_status: receiver.availability_status || 'Available',
-                        mobile_number: receiver.mobile_number || 'Not specified'
+                        skill: receiver.skill,
+                        location: receiver.location,
+                        pricePerDay: receiver.pricePerDay,
+                        category: receiver.category,
+                        availability_status: receiver.availability_status,
+                        mobile_number: receiver.mobile_number
                     });
                 } else {
                     Object.assign(receiverDetails, {
-                        phoneNumber: receiver.phoneNumber || 'Not specified'
+                        phoneNumber: receiver.phoneNumber
                     });
                 }
 
