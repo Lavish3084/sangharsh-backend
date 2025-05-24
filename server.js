@@ -976,7 +976,7 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
             return res.status(403).json({ error: 'Not authorized in this chat room' });
         }
 
-        // Create new message with both sender and receiver info
+        // Create new message
         const message = new Message({
             chatRoom: chatRoomId,
             sender: senderId,
@@ -984,7 +984,8 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
             receiver: receiverId,
             receiverType: receiverType,
             content,
-            readBy: [senderId]
+            readBy: [senderId],
+            readByTypes: [senderType]
         });
 
         console.log('📝 Creating new message:', {
@@ -1004,25 +1005,36 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
             updatedAt: new Date()
         });
 
-        // Populate both sender and receiver details for the response
-        const populatedMessage = await Message.findById(message._id)
-            .populate({
-                path: 'sender',
-                select: 'fullName name profilePicture',
-                model: function(doc) {
-                    return doc.senderType === 'User' ? 'User' : 'Labor';
-                }
-            })
-            .populate({
-                path: 'receiver',
-                select: 'fullName name profilePicture',
-                model: function(doc) {
-                    return doc.receiverType === 'User' ? 'User' : 'Labor';
-                }
-            });
+        // Manually populate sender and receiver details
+        const senderModel = senderType === 'User' ? User : Labor;
+        const receiverModel = receiverType === 'User' ? Labor : User;
+
+        const [sender, receiver] = await Promise.all([
+            senderModel.findById(senderId).select('fullName name profilePicture'),
+            receiverModel.findById(receiverId).select('fullName name profilePicture')
+        ]);
+
+        // Construct the response
+        const response = {
+            _id: message._id,
+            content: message.content,
+            sender: {
+                _id: senderId,
+                type: senderType,
+                ...sender.toObject()
+            },
+            receiver: {
+                _id: receiverId,
+                type: receiverType,
+                ...receiver.toObject()
+            },
+            senderType: message.senderType,
+            receiverType: message.receiverType,
+            createdAt: message.createdAt
+        };
 
         // Emit message to all users in the chat room
-        io.to(chatRoomId).emit('new_message', populatedMessage);
+        io.to(chatRoomId).emit('new_message', response);
 
         console.log('✅ Message sent successfully:', {
             messageId: message._id,
@@ -1032,23 +1044,7 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
         });
 
         res.status(201).json({ 
-            message: {
-                _id: populatedMessage._id,
-                content: populatedMessage.content,
-                sender: {
-                    _id: populatedMessage.sender._id,
-                    fullName: populatedMessage.sender.fullName,
-                    profilePicture: populatedMessage.sender.profilePicture
-                },
-                receiver: {
-                    _id: populatedMessage.receiver._id,
-                    fullName: populatedMessage.receiver.fullName,
-                    profilePicture: populatedMessage.receiver.profilePicture
-                },
-                senderType: populatedMessage.senderType,
-                receiverType: populatedMessage.receiverType,
-                createdAt: populatedMessage.createdAt
-            },
+            message: response,
             status: 'success'
         });
     } catch (error) {
@@ -1086,29 +1082,46 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
         }
 
         const messages = await Message.find({ chatRoom: chatRoomId })
-            .populate({
-                path: 'sender',
-                select: 'fullName name profilePicture',
-                model: function(doc) {
-                    return doc.senderType === 'User' ? 'User' : 'Labor';
-                }
-            })
-            .populate({
-                path: 'receiver',
-                select: 'fullName name profilePicture',
-                model: function(doc) {
-                    return doc.receiverType === 'User' ? 'User' : 'Labor';
-                }
-            })
             .sort({ createdAt: 1 });
+
+        // Manually populate sender and receiver details for each message
+        const populatedMessages = await Promise.all(
+            messages.map(async (message) => {
+                const senderModel = message.senderType === 'User' ? User : Labor;
+                const receiverModel = message.receiverType === 'User' ? User : Labor;
+
+                const [sender, receiver] = await Promise.all([
+                    senderModel.findById(message.sender).select('fullName name profilePicture'),
+                    receiverModel.findById(message.receiver).select('fullName name profilePicture')
+                ]);
+
+                return {
+                    _id: message._id,
+                    content: message.content,
+                    sender: {
+                        _id: message.sender,
+                        type: message.senderType,
+                        ...sender.toObject()
+                    },
+                    receiver: {
+                        _id: message.receiver,
+                        type: message.receiverType,
+                        ...receiver.toObject()
+                    },
+                    senderType: message.senderType,
+                    receiverType: message.receiverType,
+                    createdAt: message.createdAt
+                };
+            })
+        );
 
         console.log('✅ Retrieved messages:', {
             chatRoomId,
-            messageCount: messages.length
+            messageCount: populatedMessages.length
         });
 
         res.status(200).json({ 
-            messages,
+            messages: populatedMessages,
             status: 'success'
         });
     } catch (error) {
