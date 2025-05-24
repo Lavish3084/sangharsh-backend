@@ -642,16 +642,19 @@ app.post('/api/users/auth/google', async (req, res) => {
                 // Update existing user with Google info
                 user.googleId = googleId;
                 user.profilePicture = profilePicture || user.profilePicture;
+                user.fullName = fullName || user.fullName;
                 console.log('📝 Updating existing user with Google info');
             } else {
-                // Create new user
+                // Create new user with required fields
                 user = new User({
-                    fullName,
+                    fullName: fullName || email.split('@')[0], // Use email username if no name provided
                     email,
                     googleId,
-                    profilePicture,
+                    profilePicture: profilePicture || 'https://via.placeholder.com/150',
                     isVerified: true,
-                    phoneNumber: `google-${Date.now()}` // Placeholder
+                    phoneNumber: `google-${Date.now()}`, // Placeholder
+                    idType: 'Google', // Set default ID type
+                    idProofPath: 'google-auth' // Set default proof path
                 });
                 console.log('📝 Creating new user with Google info');
             }
