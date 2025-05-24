@@ -886,6 +886,16 @@ const messageSchema = new mongoose.Schema({
         enum: ['User', 'Labor'],
         required: true
     },
+    receiver: {
+        type: mongoose.Schema.Types.ObjectId,
+        refPath: 'receiverType',
+        required: true
+    },
+    receiverType: {
+        type: String,
+        enum: ['User', 'Labor'],
+        required: true
+    },
     content: {
         type: String,
         required: true
@@ -921,23 +931,29 @@ io.on('connection', (socket) => {
 // Send message
 app.post('/api/chat/message', authenticateToken, async (req, res) => {
     try {
-        const { chatRoomId, content } = req.body;
+        const { chatRoomId, content, receiverId, receiverType } = req.body;
         const senderId = req.user.id;
+        const senderType = req.user.type || 'User';
         
-        // Log the incoming request
         console.log('📥 Incoming message request:', {
             chatRoomId,
             content,
             senderId,
-            userType: req.user.type
+            senderType,
+            receiverId,
+            receiverType
         });
 
-        // Validate required fields
-        if (!chatRoomId || !content) {
-            console.error('❌ Missing required fields:', { chatRoomId, content });
+        if (!chatRoomId || !content || !receiverId || !receiverType) {
+            console.error('❌ Missing required fields:', { 
+                chatRoomId, 
+                content, 
+                receiverId, 
+                receiverType 
+            });
             return res.status(400).json({ 
                 error: 'Missing required fields',
-                details: 'chatRoomId and content are required'
+                details: 'chatRoomId, content, receiverId, and receiverType are required'
             });
         }
 
@@ -948,19 +964,18 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
             return res.status(404).json({ error: 'Chat room not found' });
         }
 
-        if (!chatRoom.participants.includes(senderId)) {
-            console.error('❌ User not authorized in chat room:', { senderId, chatRoomId });
+        if (!chatRoom.participants.includes(senderId) || !chatRoom.participants.includes(receiverId)) {
+            console.error('❌ User not authorized in chat room:', { senderId, receiverId, chatRoomId });
             return res.status(403).json({ error: 'Not authorized in this chat room' });
         }
 
-        // Determine sender type based on user type
-        const senderType = req.user.type || 'User'; // Default to 'User' if not specified
-
-        // Create new message
+        // Create new message with both sender and receiver info
         const message = new Message({
             chatRoom: chatRoomId,
             sender: senderId,
             senderType: senderType,
+            receiver: receiverId,
+            receiverType: receiverType,
             content,
             readBy: [senderId]
         });
@@ -969,6 +984,8 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
             chatRoomId,
             senderId,
             senderType,
+            receiverId,
+            receiverType,
             contentLength: content.length
         });
 
@@ -980,9 +997,22 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
             updatedAt: new Date()
         });
 
-        // Populate sender details for the response
+        // Populate both sender and receiver details for the response
         const populatedMessage = await Message.findById(message._id)
-            .populate('sender', 'fullName name profilePicture');
+            .populate({
+                path: 'sender',
+                select: 'fullName name profilePicture',
+                model: function(doc) {
+                    return doc.senderType === 'User' ? 'User' : 'Labor';
+                }
+            })
+            .populate({
+                path: 'receiver',
+                select: 'fullName name profilePicture',
+                model: function(doc) {
+                    return doc.receiverType === 'User' ? 'User' : 'Labor';
+                }
+            });
 
         // Emit message to all users in the chat room
         io.to(chatRoomId).emit('new_message', populatedMessage);
@@ -990,11 +1020,28 @@ app.post('/api/chat/message', authenticateToken, async (req, res) => {
         console.log('✅ Message sent successfully:', {
             messageId: message._id,
             chatRoomId,
-            senderId
+            senderId,
+            receiverId
         });
 
         res.status(201).json({ 
-            message: populatedMessage,
+            message: {
+                _id: populatedMessage._id,
+                content: populatedMessage.content,
+                sender: {
+                    _id: populatedMessage.sender._id,
+                    fullName: populatedMessage.sender.fullName,
+                    profilePicture: populatedMessage.sender.profilePicture
+                },
+                receiver: {
+                    _id: populatedMessage.receiver._id,
+                    fullName: populatedMessage.receiver.fullName,
+                    profilePicture: populatedMessage.receiver.profilePicture
+                },
+                senderType: populatedMessage.senderType,
+                receiverType: populatedMessage.receiverType,
+                createdAt: populatedMessage.createdAt
+            },
             status: 'success'
         });
     } catch (error) {
@@ -1011,10 +1058,12 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
     try {
         const { chatRoomId } = req.params;
         const userId = req.user.id;
+        const userType = req.user.type || 'User';
 
         console.log('📥 Fetching messages for chat room:', {
             chatRoomId,
-            userId
+            userId,
+            userType
         });
 
         // Verify chat room exists and user is a participant
@@ -1030,7 +1079,20 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
         }
 
         const messages = await Message.find({ chatRoom: chatRoomId })
-            .populate('sender', 'fullName name profilePicture')
+            .populate({
+                path: 'sender',
+                select: 'fullName name profilePicture',
+                model: function(doc) {
+                    return doc.senderType === 'User' ? 'User' : 'Labor';
+                }
+            })
+            .populate({
+                path: 'receiver',
+                select: 'fullName name profilePicture',
+                model: function(doc) {
+                    return doc.receiverType === 'User' ? 'User' : 'Labor';
+                }
+            })
             .sort({ createdAt: 1 });
 
         console.log('✅ Retrieved messages:', {
@@ -1056,9 +1118,11 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
     try {
         const { participantId, participantType } = req.body;
         const currentUserId = req.user.id;
+        const currentUserType = req.user.type || 'User';
 
         console.log('📥 Creating/getting chat room:', {
             currentUserId,
+            currentUserType,
             participantId,
             participantType
         });
@@ -1071,29 +1135,41 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
             });
         }
 
-        // Find existing chat room
+        // Find existing chat room with both participants
         let chatRoom = await ChatRoom.findOne({
-            participants: { $all: [currentUserId, participantId] }
+            $and: [
+                { participants: currentUserId },
+                { participants: participantId },
+                { participantType: currentUserType },
+                { participantType: participantType }
+            ]
         });
 
         if (!chatRoom) {
             console.log('📝 Creating new chat room');
-            // Create new chat room
+            // Create new chat room with both participants and their types
             chatRoom = new ChatRoom({
                 participants: [currentUserId, participantId],
-                participantType: [req.user.type || 'User', participantType]
+                participantType: [currentUserType, participantType]
             });
             await chatRoom.save();
         }
 
-        // Populate participant details
+        // Populate participant details based on their type
         const populatedChatRoom = await ChatRoom.findById(chatRoom._id)
-            .populate('participants', 'fullName name profilePicture')
+            .populate({
+                path: 'participants',
+                select: 'fullName name profilePicture',
+                model: function(doc) {
+                    return doc.participantType === 'User' ? 'User' : 'Labor';
+                }
+            })
             .populate('lastMessage');
 
         console.log('✅ Chat room created/retrieved:', {
             chatRoomId: chatRoom._id,
-            participants: chatRoom.participants
+            participants: chatRoom.participants,
+            participantTypes: chatRoom.participantType
         });
 
         res.status(200).json({ 
@@ -1109,21 +1185,40 @@ app.post('/api/chat/room', authenticateToken, async (req, res) => {
     }
 });
 
-// Get chat rooms for a user
+// Get chat rooms for a user/labor
 app.get('/api/chat/rooms', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
+        const userType = req.user.type || 'User';
+
+        console.log('📥 Fetching chat rooms for:', { userId, userType });
+
         const chatRooms = await ChatRoom.find({
-            participants: userId
+            participants: userId,
+            participantType: userType
         })
-        .populate('participants', 'fullName name profilePicture')
+        .populate({
+            path: 'participants',
+            select: 'fullName name profilePicture',
+            model: function(doc) {
+                return doc.participantType === 'User' ? 'User' : 'Labor';
+            }
+        })
         .populate('lastMessage')
         .sort({ updatedAt: -1 });
 
-        res.status(200).json({ chatRooms });
+        console.log('✅ Found chat rooms:', chatRooms.length);
+
+        res.status(200).json({ 
+            chatRooms,
+            status: 'success'
+        });
     } catch (error) {
-        console.error('Error fetching chat rooms:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('❌ Error fetching chat rooms:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: error.message
+        });
     }
 });
 
