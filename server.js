@@ -1258,6 +1258,7 @@ app.get('/api/chat/rooms', authenticateToken, async (req, res) => {
 
         console.log('📥 Fetching chat rooms for:', { userId, userType });
 
+        // Find chat rooms where the user/labor is a participant
         const chatRooms = await ChatRoom.find({
             participants: userId,
             participantTypes: userType
@@ -1273,18 +1274,51 @@ app.get('/api/chat/rooms', authenticateToken, async (req, res) => {
                         const type = chatRoom.participantTypes[index];
                         const model = type === 'User' ? User : Labor;
                         const participant = await model.findById(participantId)
-                            .select('fullName name profilePicture');
-                        return {
+                            .select('fullName name profilePicture mobile_number phoneNumber skill location pricePerDay category availability_status');
+                        
+                        if (!participant) {
+                            console.warn('⚠️ Participant not found:', { participantId, type });
+                            return null;
+                        }
+
+                        // Construct participant details based on type
+                        const participantDetails = {
                             _id: participantId,
                             type: type,
-                            ...participant.toObject()
+                            name: participant.name || participant.fullName,
+                            profilePicture: participant.profilePicture
                         };
+
+                        // Add type-specific fields
+                        if (type === 'Labor') {
+                            Object.assign(participantDetails, {
+                                skill: participant.skill,
+                                location: participant.location,
+                                pricePerDay: participant.pricePerDay,
+                                category: participant.category,
+                                availability_status: participant.availability_status,
+                                mobile_number: participant.mobile_number
+                            });
+                        } else {
+                            Object.assign(participantDetails, {
+                                phoneNumber: participant.phoneNumber
+                            });
+                        }
+
+                        return participantDetails;
                     })
                 );
 
+                // Filter out null participants
+                const validParticipants = participants.filter(p => p !== null);
+
+                // Get the other participant (not the current user)
+                const otherParticipant = validParticipants.find(p => p._id !== userId);
+
                 return {
                     _id: chatRoom._id,
-                    participants: participants,
+                    participants: validParticipants,
+                    otherParticipant: otherParticipant, // Add the other participant for easy access
                     lastMessage: chatRoom.lastMessage,
                     createdAt: chatRoom.createdAt,
                     updatedAt: chatRoom.updatedAt
