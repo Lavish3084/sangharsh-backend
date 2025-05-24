@@ -1083,13 +1083,16 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
             userType
         });
 
-        // Verify chat room exists and user is a participant
-        const chatRoom = await ChatRoom.findById(chatRoomId);
+        // First verify chat room exists
+        const chatRoom = await ChatRoom.findById(chatRoomId)
+            .populate('lastMessage');
+            
         if (!chatRoom) {
             console.error('❌ Chat room not found:', chatRoomId);
             return res.status(404).json({ error: 'Chat room not found' });
         }
 
+        // Verify user is a participant
         if (!chatRoom.participants.includes(userId)) {
             console.error('❌ User not authorized in chat room:', { userId, chatRoomId });
             return res.status(403).json({ error: 'Not authorized in this chat room' });
@@ -1108,8 +1111,8 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
                 const receiverModel = message.receiverType === 'User' ? User : Labor;
 
                 const [sender, receiver] = await Promise.all([
-                    senderModel.findById(message.sender).select('fullName name profilePicture'),
-                    receiverModel.findById(message.receiver).select('fullName name profilePicture')
+                    senderModel.findById(message.sender).select('fullName name profilePicture mobile_number phoneNumber skill location pricePerDay category availability_status'),
+                    receiverModel.findById(message.receiver).select('fullName name profilePicture mobile_number phoneNumber skill location pricePerDay category availability_status')
                 ]);
 
                 // Skip messages where participants are not found
@@ -1122,21 +1125,59 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
                     return null;
                 }
 
+                // Construct sender details
+                const senderDetails = {
+                    _id: message.sender,
+                    type: message.senderType,
+                    name: sender.name || sender.fullName || 'Unknown',
+                    profilePicture: sender.profilePicture || 'https://via.placeholder.com/150'
+                };
+
+                // Add type-specific fields for sender
+                if (message.senderType === 'Labor') {
+                    Object.assign(senderDetails, {
+                        skill: sender.skill || 'Not specified',
+                        location: sender.location || 'Not specified',
+                        pricePerDay: sender.pricePerDay || 0,
+                        category: sender.category || 'General',
+                        availability_status: sender.availability_status || 'Available',
+                        mobile_number: sender.mobile_number || 'Not specified'
+                    });
+                } else {
+                    Object.assign(senderDetails, {
+                        phoneNumber: sender.phoneNumber || 'Not specified'
+                    });
+                }
+
+                // Construct receiver details
+                const receiverDetails = {
+                    _id: message.receiver,
+                    type: message.receiverType,
+                    name: receiver.name || receiver.fullName || 'Unknown',
+                    profilePicture: receiver.profilePicture || 'https://via.placeholder.com/150'
+                };
+
+                // Add type-specific fields for receiver
+                if (message.receiverType === 'Labor') {
+                    Object.assign(receiverDetails, {
+                        skill: receiver.skill || 'Not specified',
+                        location: receiver.location || 'Not specified',
+                        pricePerDay: receiver.pricePerDay || 0,
+                        category: receiver.category || 'General',
+                        availability_status: receiver.availability_status || 'Available',
+                        mobile_number: receiver.mobile_number || 'Not specified'
+                    });
+                } else {
+                    Object.assign(receiverDetails, {
+                        phoneNumber: receiver.phoneNumber || 'Not specified'
+                    });
+                }
+
                 return {
                     _id: message._id,
                     content: message.content,
-                    sender: {
-                        _id: message.sender,
-                        type: message.senderType,
-                        name: sender.name || sender.fullName || 'Unknown',
-                        profilePicture: sender.profilePicture || 'https://via.placeholder.com/150'
-                    },
-                    receiver: {
-                        _id: message.receiver,
-                        type: message.receiverType,
-                        name: receiver.name || receiver.fullName || 'Unknown',
-                        profilePicture: receiver.profilePicture || 'https://via.placeholder.com/150'
-                    },
+                    sender: senderDetails,
+                    receiver: receiverDetails,
                     senderType: message.senderType,
                     receiverType: message.receiverType,
                     readBy: message.readBy || [],
@@ -1151,11 +1192,13 @@ app.get('/api/chat/messages/:chatRoomId', authenticateToken, async (req, res) =>
 
         console.log('✅ Retrieved messages:', {
             chatRoomId,
-            messageCount: validMessages.length
+            messageCount: validMessages.length,
+            hasLastMessage: !!chatRoom.lastMessage
         });
 
         res.status(200).json({ 
             messages: validMessages,
+            lastMessage: chatRoom.lastMessage,
             status: 'success'
         });
     } catch (error) {
