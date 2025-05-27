@@ -1487,6 +1487,98 @@ app.get('/api/bookings/labor/:laborId/all', authenticateToken, async (req, res) 
     }
 });
 
+// Location Schema
+const locationSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    name: { type: String, required: true },
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+    address: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const Location = mongoose.model('Location', locationSchema);
+
+// Save location endpoint
+app.post('/api/locations/save', authenticateToken, async (req, res) => {
+    try {
+        const { name, latitude, longitude, address } = req.body;
+        const userId = req.user.id;
+
+        const location = new Location({
+            userId,
+            name,
+            latitude,
+            longitude,
+            address
+        });
+
+        await location.save();
+
+        res.status(201).json({
+            success: true,
+            location: location
+        });
+    } catch (error) {
+        console.error('Error saving location:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to save location' 
+        });
+    }
+});
+
+// Get saved locations endpoint
+app.get('/api/locations', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const locations = await Location.find({ userId })
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({
+            success: true,
+            locations: locations
+        });
+    } catch (error) {
+        console.error('Error fetching locations:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to fetch locations' 
+        });
+    }
+});
+
+// Delete location endpoint
+app.delete('/api/locations/:id', authenticateToken, async (req, res) => {
+    try {
+        const locationId = req.params.id;
+        const userId = req.user.id;
+
+        const location = await Location.findOneAndDelete({
+            _id: locationId,
+            userId: userId
+        });
+
+        if (!location) {
+            return res.status(404).json({
+                success: false,
+                error: 'Location not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Location deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting location:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to delete location' 
+        });
+    }
+});
+
 // Start the server
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
